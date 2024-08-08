@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tracing::{debug, warn};
+
+use crate::enc;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Age {
@@ -19,35 +23,88 @@ struct SopsData {
     version: String,
 }
 
-pub enum Error {}
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Could not parse file as JSON or YAML")]
+    ParseError,
+    #[error("Could not decrypt data: {0}")]
+    DecryptionError(#[from] DecryptionError),
+}
 
-pub enum FileType {
-    Json,
-    Yaml,
+#[derive(Error, Debug)]
+pub enum DecryptionError {
+    #[error("Invalid key file")]
+    InvalidKeyFile,
+    #[error("No recipients found")]
+    NoRecipients,
+    #[error("Error decrypting KEK: {0}")]
+    KekDecryptionError(#[from] anyhow::Error),
+    #[error("No key found")]
+    NoKey,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SopsFile {
-    sops: SopsData,
+    pub sops: SopsData,
     #[serde(flatten)]
     other: HashMap<String, String>,
 }
 
 impl SopsFile {
     pub fn load(path: &str) -> Result<Self> {
+        debug!("Loading file from path: {}", path);
         let data = std::fs::read_to_string(path)?;
-        let sops_file: SopsFile = serde_json::from_str(&data)?;
+        let as_json: Result<Self, serde_json::Error> = serde_json::from_str(&data);
+        let as_yaml: Result<Self, serde_yaml::Error> = serde_yaml::from_str(&data);
 
-        Ok(sops_file)
+        match as_json {
+            Ok(json) => Ok(json),
+            Err(_) => match as_yaml {
+                Ok(yaml) => Ok(yaml),
+                Err(_) => Err(anyhow!(Error::ParseError)),
+            },
+        }
     }
 
-    fn try_load(path: &str, file_type: FileType) -> Result<Self> {
-        let data = std::fs::read_to_string(path)?;
-        let sops_file: SopsFile = match file_type {
-            FileType::Json => serde_json::from_str(&data)?,
-            FileType::Yaml => serde_yaml::from_str(&data)?,
+    pub fn get(&self, key: &str, keyfile: &str) -> Result<String> {
+        debug!("Retrieving key {} with keyfile {}", key, keyfile);
+        let raw = self.other.get(key);
+        debug!("Raw data: {:?}", raw);
+
+        let raw = match raw {
+            Some(r) => r,
+            None => return Err(anyhow!(Error::ParseError)),
         };
 
-        Ok(sops_file)
+        let identities = match enc::age::get_public_keys(keyfile) {
+            Ok(i) => i,
+            Err(_) => return Err(anyhow!(DecryptionError::NoKey)),
+        };
+        debug!("Identities: {:?}", identities);
+
+        let candidates: Vec<&Age> = self
+            .sops
+            .age
+            .iter()
+            .filter(|a| identities.contains(&a.recipient))
+            .collect();
+
+        debug!("Found {} candidates", candidates.len());
+
+        if candidates.len() == 0 {
+            return Err(anyhow!(DecryptionError::NoRecipients));
+        }
+
+        let candidate = candidates[0];
+
+        debug!("Candidate: {:?}", candidate);
+
+        let kek = enc::age::decrypt_kek(&candidate.enc, keyfile)
+            .map_err(|e| DecryptionError::KekDecryptionError(e))?;
+        let kek: &[u8; 32] = kek[..].try_into()?;
+
+        debug!("KEK: {:?}", kek);
+
+        enc::age::decrypt(raw.to_string(), kek, vec![key.to_string()])
     }
 }

@@ -17,7 +17,7 @@
           pname = "secnix";
           version = "0.1.0";
           src = ./.;
-          cargoHash = "sha256-eDRoeGjT4HNL6RW8r9XDHgGe6j0FwwhEf0U3+0EdS88=";
+          cargoHash = "sha256-+623hYkgAjraYJUoIynrB3e14l00W22n0XYblHW1mfY=";
           meta = {
             description = "A sops secret manager for nix";
             license = pkgs.lib.licenses.mit;
@@ -27,6 +27,10 @@
       };
       devShell = pkgs.mkShell {
         buildInputs = with pkgs; [ packages.default sops];
+        shellHook = ''
+          export RUST_LOG=debug
+          # export RUST_BACKTRACE=1
+        '';
       };
     });
 }
