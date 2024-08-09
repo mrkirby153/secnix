@@ -82,7 +82,7 @@ impl SopsFile for YamlSopsFile {
                 }
                 return None;
             }
-            Some(other) => get_key_yaml(&key[1..], Some(other)),
+            Some(other) => other.get_nested(&key[1..]),
             None => return None,
         }
     }
@@ -103,7 +103,7 @@ impl SopsFile for JsonSopsFile {
                 }
                 return None;
             }
-            Some(other) => get_key_json(&key[1..], Some(other)),
+            Some(other) => other.get_nested(&key[1..]),
             None => return None,
         }
     }
@@ -131,52 +131,6 @@ pub fn load_sops_file(path: &str) -> Result<Box<dyn SopsFile>> {
     }
 
     Err(anyhow!(Error::ParseError))
-}
-
-fn get_key_yaml<'a>(path: &[&'a str], node: Option<&'a serde_yaml::Value>) -> Option<&'a String> {
-    debug!("Current key: {:?}", path);
-    debug!("Node: {:?}", node);
-
-    match node {
-        Some(serde_yaml::Value::String(s)) => {
-            info!("Found string: {:?}", s);
-            if path.len() == 0 {
-                return Some(s);
-            }
-            return None;
-        }
-        Some(serde_yaml::Value::Mapping(m)) => {
-            let current_key = path.get(0);
-            let current = match current_key {
-                Some(k) => m.get(k),
-                None => None,
-            };
-
-            return get_key_yaml(&path[1..], current);
-        }
-        _ => return None,
-    }
-}
-
-fn get_key_json<'a>(path: &[&'a str], node: Option<&'a serde_json::Value>) -> Option<&'a String> {
-    match node {
-        Some(serde_json::Value::String(s)) => {
-            if path.len() == 0 {
-                return Some(s);
-            }
-            return None;
-        }
-        Some(serde_json::Value::Object(m)) => {
-            let current_key = path.get(0);
-            let current = match current_key {
-                Some(k) => m.get(k.to_owned()),
-                None => None,
-            };
-
-            return get_key_json(&path[1..], current);
-        }
-        _ => return None,
-    }
 }
 
 fn decrypt(path: &[&str], data: &str, keyfile: &str, sops: &SopsData) -> Result<String> {
@@ -208,4 +162,78 @@ fn decrypt(path: &[&str], data: &str, keyfile: &str, sops: &SopsData) -> Result<
         kek,
         path.into_iter().map(|f| f.to_string()).collect(),
     )
+}
+
+trait Leaf {
+    fn is_leaf(&self) -> bool;
+}
+
+impl Leaf for serde_yaml::Value {
+    fn is_leaf(&self) -> bool {
+        !matches!(self, serde_yaml::Value::Mapping(_))
+    }
+}
+
+impl Leaf for serde_json::Value {
+    fn is_leaf(&self) -> bool {
+        !matches!(self, serde_json::Value::Object(_))
+    }
+}
+
+trait Nested {
+    fn get_nested(&self, key: &[&str]) -> Option<&String>;
+}
+
+impl Nested for serde_yaml::Value {
+    fn get_nested(&self, key: &[&str]) -> Option<&String> {
+        match self {
+            serde_yaml::Value::String(s) => {
+                if key.len() == 0 {
+                    Some(s)
+                } else {
+                    None
+                }
+            }
+            serde_yaml::Value::Mapping(m) => {
+                let current_key = key.get(0);
+                let current = match current_key {
+                    Some(k) => m.get(k),
+                    None => None,
+                };
+                if let Some(value) = current {
+                    value.get_nested(&key[1..])
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+impl Nested for serde_json::Value {
+    fn get_nested(&self, key: &[&str]) -> Option<&String> {
+        match self {
+            serde_json::Value::String(s) => {
+                if key.len() == 0 {
+                    Some(s)
+                } else {
+                    None
+                }
+            }
+            serde_json::Value::Object(m) => {
+                let current_key = key.get(0);
+                let current = match current_key {
+                    Some(k) => m.get(k.to_owned()),
+                    None => None,
+                };
+                if let Some(value) = current {
+                    value.get_nested(&key[1..])
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }
