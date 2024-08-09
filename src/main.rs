@@ -1,20 +1,21 @@
 mod enc;
 mod sops;
 
-use enc::age::SopsGcm;
-use tracing::info;
+use sops::load_sops_file;
 use tracing_subscriber;
-
-use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
-    Aes256Gcm,
-    Key, // Or `Aes128Gcm`
-    Nonce,
-};
 
 fn main() {
     tracing_subscriber::fmt::init();
-    let file = sops::SopsFile::load("test.yaml").unwrap();
+    let file = load_sops_file("data/foo.json").unwrap();
+
+    let foo = "nested.object";
+    let key = foo.split('.').collect::<Vec<&str>>();
+
+    let key = file.get_key(&key[..]);
+
+    // file.get_decrypted(&key);
+
+    println!("{:?}", key);
 
     // let key = SopsGcm::generate_key(OsRng);
 
@@ -32,8 +33,8 @@ fn main() {
 
     // info!("Asserted!");
 
-    println!(
-        "{:?}",
-        file.get("restic_local", "/home/austin/.config/sops/age/keys.txt")
-    );
+    // println!(
+    //     "{:?}",
+    //     file.get("restic_local", "/home/austin/.config/sops/age/keys.txt")
+    // );
 }
