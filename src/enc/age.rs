@@ -66,15 +66,9 @@ pub fn decrypt(data: String, key: &[u8; 32], path: Vec<String>) -> Result<String
 
     let cipher = SopsGcm::new(&key);
     match cipher.decrypt(&nonce, payload) {
-        Ok(decrypted) => {
-            info!("Decrypted: {:?}", decrypted);
-            info!("Decrypted: {:?}", String::from_utf8(decrypted));
-        }
-        Err(e) => {
-            error!("Error decrypting data: {:?}", e);
-        }
+        Ok(decrypted) => String::from_utf8(decrypted).map_err(|e| anyhow!(e)),
+        Err(e) => Err(anyhow!(e)),
     }
-    Ok("".to_string())
 }
 
 fn read_age_keyfile(path: &str) -> Result<Vec<IdentityFileEntry>> {

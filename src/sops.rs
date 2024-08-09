@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::enc;
 
@@ -14,7 +14,7 @@ struct Age {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct SopsData {
+pub struct SopsData {
     age: Vec<Age>,
     #[serde(rename = "lastmodified")]
     last_modified: String,
@@ -29,12 +29,12 @@ pub enum Error {
     ParseError,
     #[error("Could not decrypt data: {0}")]
     DecryptionError(#[from] DecryptionError),
+    #[error("Missing data: {0}")]
+    MissingData(String),
 }
 
 #[derive(Error, Debug)]
 pub enum DecryptionError {
-    #[error("Invalid key file")]
-    InvalidKeyFile,
     #[error("No recipients found")]
     NoRecipients,
     #[error("Error decrypting KEK: {0}")]
@@ -45,6 +45,16 @@ pub enum DecryptionError {
 
 pub trait SopsFile {
     fn get_key<'a>(&'a self, key: &[&'a str]) -> Option<&String>;
+
+    fn decrypt(&self, key: &[&str], keyfile: &str) -> Result<String> {
+        let data = self.get_key(key);
+        match data {
+            Some(d) => decrypt(key, d, keyfile, self.sops_metadata()),
+            None => Err(anyhow!(Error::MissingData(key.join(".")))),
+        }
+    }
+
+    fn sops_metadata(&self) -> &SopsData;
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -76,6 +86,10 @@ impl SopsFile for YamlSopsFile {
             None => return None,
         }
     }
+
+    fn sops_metadata(&self) -> &SopsData {
+        &self.sops
+    }
 }
 
 impl SopsFile for JsonSopsFile {
@@ -92,6 +106,10 @@ impl SopsFile for JsonSopsFile {
             Some(other) => get_key_json(&key[1..], Some(other)),
             None => return None,
         }
+    }
+
+    fn sops_metadata(&self) -> &SopsData {
+        &self.sops
     }
 }
 
@@ -161,7 +179,7 @@ fn get_key_json<'a>(path: &[&'a str], node: Option<&'a serde_json::Value>) -> Op
     }
 }
 
-fn decrypt(path: &[String], data: &str, keyfile: &str, sops: &SopsData) -> Result<String> {
+fn decrypt(path: &[&str], data: &str, keyfile: &str, sops: &SopsData) -> Result<String> {
     debug!("Decrypting {} with keyfile {}", data, keyfile);
     let identities = match enc::age::get_public_keys(keyfile) {
         Ok(i) => i,
@@ -185,5 +203,9 @@ fn decrypt(path: &[String], data: &str, keyfile: &str, sops: &SopsData) -> Resul
         .map_err(|e| DecryptionError::KekDecryptionError(e))?;
     let kek: &[u8; 32] = kek[..].try_into()?;
 
-    enc::age::decrypt(data.to_string(), kek, path.into())
+    enc::age::decrypt(
+        data.to_string(),
+        kek,
+        path.into_iter().map(|f| f.to_string()).collect(),
+    )
 }
