@@ -12,7 +12,9 @@ use age::IdentityFileEntry;
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, Engine as _};
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
+
+use regex::Regex;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -106,40 +108,44 @@ struct Aes256GcmData {
     data_type: Aes256GcmType,
 }
 
+const AES256_GCM_REGEX: &str = r#"^ENC\[AES256_GCM,data:(.*),iv:(.*),tag:(.*),type:(.*)\]$"#;
+
+#[derive(Debug, Error)]
+pub enum ParseError {
+    #[error("Invalid data format")]
+    InvalidDataFormat,
+    #[error("Error decoding {0}: {1}")]
+    DataDecodeError(String, #[source] base64::DecodeError),
+}
+
 impl TryFrom<String> for Aes256GcmData {
-    type Error = anyhow::Error;
+    type Error = ParseError;
 
-    fn try_from(value: String) -> Result<Self, anyhow::Error> {
+    fn try_from(value: String) -> Result<Aes256GcmData, ParseError> {
+        let re = Regex::new(AES256_GCM_REGEX).unwrap();
         debug!("Parsing AES256_GCM data: {}", value);
-        if !value.starts_with("ENC[AES256_GCM") && !value.ends_with("]") {
-            return Err(anyhow!("Invalid data type"));
-        }
 
-        let parts: Vec<&str> = value.split(",").collect();
+        let Some((_, [data, iv, tag, data_type])) = re.captures(&value).map(|c| c.extract()) else {
+            return Err(ParseError::InvalidDataFormat);
+        };
 
-        if parts.len() != 5 {
-            return Err(anyhow!("Invalid data format. Missing parts"));
-        }
+        let data = general_purpose::STANDARD
+            .decode(data)
+            .map_err(|e| ParseError::DataDecodeError("data".to_string(), e))?;
+        let iv = general_purpose::STANDARD
+            .decode(iv)
+            .map_err(|e| ParseError::DataDecodeError("iv".to_string(), e))?;
+        let tag = general_purpose::STANDARD
+            .decode(tag)
+            .map_err(|e| ParseError::DataDecodeError("tag".to_string(), e))?;
 
-        let data_part = parts[1]
-            .strip_prefix("data:")
-            .ok_or_else(|| anyhow!("Invalid data format"))?;
-        let iv_part = parts[2]
-            .strip_prefix("iv:")
-            .ok_or_else(|| anyhow!("Invalid data format"))?;
-        let tag_part = parts[3]
-            .strip_prefix("tag:")
-            .ok_or_else(|| anyhow!("Invalid data format"))?;
-        let type_part = parts[4]
-            .strip_prefix("type:")
-            .ok_or_else(|| anyhow!("Invalid data format"))?;
-
-        let data = general_purpose::STANDARD.decode(data_part)?;
-        let iv = general_purpose::STANDARD.decode(iv_part)?;
-        let tag = general_purpose::STANDARD.decode(tag_part)?;
-
-        let data_type = match type_part {
+        let data_type = match data_type {
             "str" => Aes256GcmType::String,
+            "int" => Aes256GcmType::Int,
+            "float" => Aes256GcmType::Float,
+            "bytes" => Aes256GcmType::Bytes,
+            "bool" => Aes256GcmType::Bool,
+            "comment" => Aes256GcmType::Comment,
             _ => Aes256GcmType::Unknown,
         };
 
