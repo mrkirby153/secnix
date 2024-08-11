@@ -16,7 +16,7 @@ use ulid::Ulid;
 use crate::{enc::age::DecryptedValue, manifest::SecretFile, sops::load_sops_file};
 
 use std::fs::OpenOptions;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 /// Metadata about the secrets deployed on the system
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,8 +72,8 @@ pub fn activate_new_generation(
     // Write the files
     for secret_file in &files {
         let file_name = &secret_file.name;
-        let file = generation_directory.join(&file_name);
-        debug!("Writing file: {}", file.display());
+        let file_path = generation_directory.join(&file_name);
+        debug!("Writing file: {}", file_path.display());
 
         let encrypted = load_sops_file(&secret_file.source)?;
         if let Some(key) = &secret_file.get_key() {
@@ -86,7 +86,7 @@ pub fn activate_new_generation(
                 .create(true)
                 .truncate(true)
                 .mode(0o600)
-                .open(&file)?;
+                .open(&file_path)?;
 
             match decrypted {
                 DecryptedValue::String(str) => {
@@ -109,6 +109,8 @@ pub fn activate_new_generation(
                 }
             }
             file.flush()?;
+            // Make the fole read-only
+            std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o400))?;
             debug!("File written successfully");
         } else {
             warn!("No key provided for file: {}", file_name);
