@@ -24,6 +24,15 @@ pub enum Error {
     DecryptionError(#[from] age::DecryptError),
 }
 
+pub enum DecryptedValue {
+    String(String),
+    Int(i64),
+    Float(f64),
+    Bytes(Vec<u8>),
+    Bool(bool),
+    Comment(String),
+}
+
 pub fn decrypt_kek(kek: &str, keyfile: &str) -> Result<Vec<u8>> {
     let armor_reader = age::armor::ArmoredReader::new(kek.as_bytes());
 
@@ -48,7 +57,7 @@ pub fn decrypt_kek(kek: &str, keyfile: &str) -> Result<Vec<u8>> {
 
 pub type SopsGcm = AesGcm<Aes256, cipher::consts::U32>;
 
-pub fn decrypt(data: String, key: &[u8; 32], path: Vec<String>) -> Result<String> {
+pub fn decrypt(data: String, key: &[u8; 32], path: Vec<String>) -> Result<DecryptedValue> {
     let raw_data = Aes256GcmData::try_from(data)?;
     let nonce = raw_data.iv;
     let aad = path.join(":") + ":";
@@ -68,7 +77,19 @@ pub fn decrypt(data: String, key: &[u8; 32], path: Vec<String>) -> Result<String
 
     let cipher = SopsGcm::new(&key);
     match cipher.decrypt(&nonce, payload) {
-        Ok(decrypted) => String::from_utf8(decrypted).map_err(|e| anyhow!(e)),
+        Ok(raw_decrypted) => {
+            let decrypted = String::from_utf8(raw_decrypted).map_err(|e| anyhow!(e))?;
+
+            match raw_data.data_type {
+                Aes256GcmType::String => Ok(DecryptedValue::String(decrypted)),
+                Aes256GcmType::Int => Ok(DecryptedValue::Int(decrypted.parse()?)),
+                Aes256GcmType::Float => Ok(DecryptedValue::Float(decrypted.parse()?)),
+                Aes256GcmType::Bytes => Ok(DecryptedValue::Bytes(decrypted.into_bytes())),
+                Aes256GcmType::Bool => Ok(DecryptedValue::Bool(decrypted.parse()?)),
+                Aes256GcmType::Comment => Ok(DecryptedValue::Comment(decrypted)),
+                Aes256GcmType::Unknown => Err(anyhow!("Unknown data type")),
+            }
+        }
         Err(e) => Err(anyhow!(e)),
     }
 }

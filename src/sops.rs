@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, info};
 
-use crate::enc;
+use crate::enc::{self, age::DecryptedValue};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Age {
@@ -46,7 +46,7 @@ pub enum DecryptionError {
 pub trait SopsFile {
     fn get_key<'a>(&'a self, key: &[&'a str]) -> Option<&String>;
 
-    fn decrypt(&self, key: &[&str], keyfile: &str) -> Result<String> {
+    fn decrypt(&self, key: &[&str], keyfile: &str) -> Result<DecryptedValue> {
         let data = self.get_key(key);
         match data {
             Some(d) => decrypt(key, d, keyfile, self.sops_metadata()),
@@ -133,7 +133,7 @@ pub fn load_sops_file(path: &str) -> Result<Box<dyn SopsFile>> {
     Err(anyhow!(Error::ParseError))
 }
 
-fn decrypt(path: &[&str], data: &str, keyfile: &str, sops: &SopsData) -> Result<String> {
+fn decrypt(path: &[&str], data: &str, keyfile: &str, sops: &SopsData) -> Result<DecryptedValue> {
     debug!("Decrypting {} with keyfile {}", data, keyfile);
     let identities = match enc::age::get_public_keys(keyfile) {
         Ok(i) => i,
