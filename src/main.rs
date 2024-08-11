@@ -1,21 +1,22 @@
+mod cli;
 mod enc;
+mod manifest;
 mod sops;
 mod ssh;
 
-use std::path::Path;
+use clap::Parser;
 
-use ssh::AgeKey;
-use ssh_key::PrivateKey;
+use anyhow::Result;
+use cli::{Cli, Commands};
 use tracing_subscriber;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
+    let cli = Cli::parse();
 
-    let ssh_private_key = Path::new("/home/austin/.ssh/id_ed25519");
-    let bytes = std::fs::read(ssh_private_key).unwrap();
-    let ssh_key = PrivateKey::from_openssh(bytes)?;
-
-    let key = AgeKey::try_from(ssh_key)?;
-    println!("{:?}", key);
-    Ok(())
+    match cli.command {
+        Some(Commands::Check) => cli::check(cli),
+        Some(Commands::Install) => cli::install(cli),
+        None => cli::install(cli),
+    }
 }

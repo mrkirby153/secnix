@@ -8,16 +8,16 @@ use tracing::{debug, info};
 use crate::enc::{self, age::DecryptedValue};
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Age {
-    recipient: String,
-    enc: String,
+pub struct Age {
+    pub recipient: String,
+    pub enc: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SopsData {
-    age: Vec<Age>,
+    pub age: Vec<Age>,
     #[serde(rename = "lastmodified")]
-    last_modified: String,
+    pub last_modified: String,
     mac: String,
     unencrypted_suffix: String,
     version: String,
@@ -76,7 +76,7 @@ impl SopsFile for YamlSopsFile {
         let first = self.other.get(key[0]);
         match first {
             Some(serde_yaml::Value::String(s)) => {
-                info!("Found string: {:?}", s);
+                debug!("Found string: {:?}", s);
                 if key.len() == 1 {
                     return Some(s);
                 }
@@ -97,7 +97,7 @@ impl SopsFile for JsonSopsFile {
         let first = self.other.get(key[0]);
         match first {
             Some(serde_json::Value::String(s)) => {
-                info!("Found string: {:?}", s);
+                debug!("Found string: {:?}", s);
                 if key.len() == 1 {
                     return Some(s);
                 }
