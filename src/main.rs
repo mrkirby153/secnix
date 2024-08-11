@@ -1,17 +1,21 @@
 mod enc;
 mod sops;
+mod ssh;
 
-use sops::load_sops_file;
+use std::path::Path;
+
+use ssh::AgeKey;
+use ssh_key::PrivateKey;
 use tracing_subscriber;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
-    let file = load_sops_file("data/test.yaml").unwrap();
 
-    let foo = "restic_remote_password";
-    let key = foo.split('.').collect::<Vec<&str>>();
+    let ssh_private_key = Path::new("/home/austin/.ssh/id_ed25519");
+    let bytes = std::fs::read(ssh_private_key).unwrap();
+    let ssh_key = PrivateKey::from_openssh(bytes)?;
 
-    let result = file.decrypt(&key[..], "/home/austin/.config/sops/age/keys.txt");
-
-    println!("{:?}", result);
+    let key = AgeKey::try_from(ssh_key)?;
+    println!("{:?}", key);
+    Ok(())
 }
