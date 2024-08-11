@@ -1,5 +1,6 @@
 mod cli;
 mod enc;
+mod fs;
 mod manifest;
 mod sops;
 mod ssh;

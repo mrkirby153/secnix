@@ -17,7 +17,7 @@
           pname = "secnix";
           version = "0.1.0";
           src = ./.;
-          cargoHash = "sha256-qdOJWzkHEWLmgBY9OULQmamofb1+JjaXjXGGj1sr0zU=";
+          cargoHash = "sha256-3QIFjxAAPosrov7DWZ8mqn+Q0pHJ5noBV+jHUjouOvA=";
           meta = {
             description = "A sops secret manager for nix";
             license = pkgs.lib.licenses.mit;

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Deserialize)]
@@ -14,11 +14,9 @@ pub struct SecnixManifest {
     pub ssh_keys: Vec<String>,
     /// The directory where the secrets will be installed
     pub secret_directory: String,
-    /// Whether or not to write the manifest file (Can clean up secrets between generations)
-    pub write_manifest: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SecretFile {
     /// The type of file
     #[serde(rename = "type")]
@@ -30,7 +28,7 @@ pub struct SecretFile {
     pub source: String,
 
     /// The key in the file
-    pub key: Option<String>,
+    key: Option<String>,
 
     /// The location where the file will be symlinked
     pub link: Option<String>,
@@ -45,7 +43,7 @@ pub struct SecretFile {
     pub copy: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
 pub enum FileType {
     #[serde(rename = "json")]
     JSON,
@@ -78,5 +76,19 @@ impl SecnixManifest {
             serde_json::from_str(&manifest).map_err(|e| Error::InvalidManifest(e))?;
 
         Ok(manifest)
+    }
+}
+
+impl SecretFile {
+    pub fn get_key(&self) -> Option<String> {
+        if let Some(key) = &self.key {
+            Some(key.clone())
+        } else {
+            if self.file_type == FileType::Binary {
+                Some("data".to_string())
+            } else {
+                None
+            }
+        }
     }
 }

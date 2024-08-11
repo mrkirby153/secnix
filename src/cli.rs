@@ -1,14 +1,19 @@
-use std::path::Path;
+use std::{
+    fs::OpenOptions,
+    path::{Path, PathBuf},
+};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use thiserror::Error;
 use tracing::{debug, info};
 
 use crate::{
-    manifest::{FileType, SecnixManifest},
-    sops::load_sops_file,
+    fs::activate_new_generation, manifest::SecnixManifest, sops::load_sops_file, ssh::AgeKey,
 };
+
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -58,24 +63,19 @@ pub fn check(args: Cli) -> Result<()> {
         }
         debug!("Age keys found!");
 
-        let key = file.key.as_ref();
+        let key = file.get_key();
 
-        let key: Vec<&str> = {
-            if let Some(key) = key {
-                key.split('.').collect::<Vec<&str>>()
-            } else {
-                // Substitute ["data"] only if the file type is binary, otherwise return an error
-                if file.file_type == FileType::Binary {
-                    vec!["data"]
-                } else {
-                    return Err(Error::CheckFailed(
-                        file.source.clone(),
-                        "Key not found in manifest".to_string(),
-                    )
-                    .into());
-                }
-            }
+        let key = if let Some(key) = key {
+            key
+        } else {
+            return Err(Error::CheckFailed(
+                file.source.clone(),
+                "Key not found in manifest".to_string(),
+            )
+            .into());
         };
+
+        let key = key.split('.').collect::<Vec<_>>();
 
         debug!("Checking if {:?} exists in the file", key);
         let data = sops_file.get_key(&key);
@@ -94,8 +94,21 @@ pub fn check(args: Cli) -> Result<()> {
     Ok(())
 }
 
-pub fn install(_args: Cli) -> Result<()> {
+pub fn install(args: Cli) -> Result<()> {
     info!("Installing secrets");
+
+    let manifest = load_manifest(&args.manifest)?;
+
+    let directory = Path::new(&manifest.secret_directory);
+
+    let keyfile = write_ssh_keys(directory, &manifest.ssh_keys[..])?;
+    let keyfile = keyfile.to_str();
+
+    if let Some(keyfile) = keyfile {
+        activate_new_generation(directory, manifest.secrets, &keyfile)?;
+    } else {
+        return Err(anyhow!("Failed to convert keyfile path to string"));
+    }
 
     Ok(())
 }
@@ -110,4 +123,36 @@ fn load_manifest(path: &str) -> Result<SecnixManifest> {
     } else {
         Ok(manifest)
     }
+}
+
+fn write_ssh_keys(directory: &Path, keys: &[String]) -> Result<PathBuf> {
+    let path = directory.join("keys.txt");
+    debug!("Writing ssh keys to {}", path.display());
+
+    if path.exists() {
+        debug!("Removing existing key file");
+        std::fs::remove_file(&path)?;
+    }
+
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)?;
+    let mut buffer = std::io::BufWriter::new(file);
+    for key in keys {
+        let key = shellexpand::tilde(key);
+        info!("Importing key: {}", key);
+        let data = std::fs::read(key.into_owned())?;
+        let private_key = ssh_key::PrivateKey::from_openssh(data)?;
+        let age_key: AgeKey = private_key.try_into()?;
+        debug!("Writing public key {}", age_key.public_key);
+        writeln!(buffer, "# {}", age_key.public_key)?;
+        writeln!(buffer, "{}", age_key.private_key)?;
+    }
+    debug!("Wrote age key to {}", path.display());
+    buffer.flush()?;
+
+    Ok(path)
 }
