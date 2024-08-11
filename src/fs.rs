@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs::rename,
     io::Write,
     os::unix::fs::symlink,
@@ -22,7 +22,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 #[derive(Debug, Serialize, Deserialize)]
 struct FileSystemMetadata {
     /// A list of generations that have been deployed
-    generations: HashMap<u64, String>,
+    generations: BTreeMap<u64, String>,
     active_generation: Option<String>,
 }
 
@@ -185,35 +185,35 @@ pub fn clean_old_generations(basedir: &Path, to_keep: usize) -> Result<()> {
     info!("Cleaning old generations");
 
     let mut metadata = get_metadata(basedir)?;
-    let active_generation = &metadata.active_generation;
+    let active_generation = metadata.active_generation.as_ref();
 
-    let old_generations = metadata.generations.clone();
-    let mut old_generations: Vec<(&u64, &String)> = old_generations
-        .iter()
-        .filter(|(_, id)| active_generation.as_ref() != Some(id))
-        .collect();
+    let to_remove = metadata.generations.len() - to_keep;
+    let mut removed_count = 0;
+    let mut removed_active = None;
+    while removed_count < to_remove {
+        let Some(removed) = metadata.generations.pop_first() else {
+            info!("Removed {removed_count} old generations");
+            return Ok(());
+        };
 
-    if old_generations.len() <= to_keep {
-        info!("No old generations to clean");
-        return Ok(());
+        if active_generation.is_some_and(|id| id == &removed.1) {
+            removed_active = Some(removed);
+            continue;
+        }
+
+        removed_count += 1;
+
+        let (_ts, id) = removed;
+        info!("Removing old generation: {}", id);
+
+        let path = get_generation_path(basedir, &id);
+        if let Err(e) = std::fs::remove_dir_all(&path) {
+            warn!("Failed to remove file {}: {}", path.display(), e);
+        }
     }
 
-    debug!("Found {} old generations", old_generations.len());
-
-    old_generations.sort_by(|a, b| a.0.cmp(b.0));
-
-    let to_remove = old_generations.len() - to_keep;
-    debug!("Removing {} old generations", to_remove);
-    let to_remove = old_generations.iter().take(to_remove);
-
-    for (ts, id) in to_remove {
-        info!("Removing old generation: {}", id);
-        let generation_path = get_generation_path(basedir, id);
-        let res = std::fs::remove_dir_all(&generation_path);
-        if let Err(e) = res {
-            warn!("Failed to remove file {}: {}", generation_path.display(), e);
-        }
-        metadata.generations.remove(ts);
+    if let Some((ts, id)) = removed_active {
+        metadata.generations.insert(ts, id);
     }
 
     let metadata_file = basedir.join("metadata.json");
@@ -235,7 +235,7 @@ fn get_metadata(basedir: &Path) -> Result<FileSystemMetadata> {
     let metadata_file = basedir.join("metadata.json");
     if !metadata_file.exists() {
         Ok(FileSystemMetadata {
-            generations: HashMap::new(),
+            generations: BTreeMap::new(),
             active_generation: None,
         })
     } else {

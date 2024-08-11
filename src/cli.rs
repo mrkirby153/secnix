@@ -113,7 +113,7 @@ pub fn install(args: Cli) -> Result<()> {
         return Err(anyhow!("Failed to convert keyfile path to string"));
     }
 
-    clean_old_generations(directory, 0)?;
+    clean_old_generations(directory, 1)?;
 
     Ok(())
 }
