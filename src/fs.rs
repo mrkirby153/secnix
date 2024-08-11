@@ -167,7 +167,6 @@ pub fn activate_new_generation(
         for file in to_remove {
             let file = Path::new(file);
             info!("Removing stale symlink: {}", file.display());
-            std::fs::remove_file(&file)?;
         }
     }
 
@@ -178,6 +177,48 @@ pub fn activate_new_generation(
 
     debug!("Generation created successfully");
     Ok(generation_id)
+}
+
+pub fn clean_old_generations(basedir: &Path, to_keep: usize) -> Result<()> {
+    info!("Cleaning old generations");
+
+    let mut metadata = get_metadata(basedir)?;
+    let active_generation = &metadata.active_generation;
+
+    let old_generations = metadata.generations.clone();
+    let mut old_generations: Vec<(&u64, &String)> = old_generations
+        .iter()
+        .filter(|(_, id)| active_generation.as_ref() != Some(id))
+        .collect();
+
+    if old_generations.len() <= to_keep {
+        info!("No old generations to clean");
+        return Ok(());
+    }
+
+    debug!("Found {} old generations", old_generations.len());
+
+    old_generations.sort_by(|a, b| a.0.cmp(b.0));
+
+    let to_remove = old_generations.len() - to_keep;
+    debug!("Removing {} old generations", to_remove);
+    let to_remove = old_generations.iter().take(to_remove);
+
+    for (ts, id) in to_remove {
+        info!("Removing old generation: {}", id);
+        let generation_path = get_generation_path(basedir, id);
+        let res = std::fs::remove_dir_all(&generation_path);
+        if let Err(e) = res {
+            warn!("Failed to remove file {}: {}", generation_path.display(), e);
+        }
+        metadata.generations.remove(ts);
+    }
+
+    let metadata_file = basedir.join("metadata.json");
+    let metadata_file = std::fs::File::create(&metadata_file)?;
+    serde_json::to_writer(metadata_file, &metadata)?;
+
+    Ok(())
 }
 
 fn get_generation_path(basedir: &Path, generation_id: &str) -> std::path::PathBuf {

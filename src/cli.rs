@@ -9,7 +9,10 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 use crate::{
-    fs::activate_new_generation, manifest::SecnixManifest, sops::load_sops_file, ssh::AgeKey,
+    fs::{activate_new_generation, clean_old_generations},
+    manifest::SecnixManifest,
+    sops::load_sops_file,
+    ssh::AgeKey,
 };
 
 use std::io::Write;
@@ -109,6 +112,8 @@ pub fn install(args: Cli) -> Result<()> {
     } else {
         return Err(anyhow!("Failed to convert keyfile path to string"));
     }
+
+    clean_old_generations(directory, 0)?;
 
     Ok(())
 }
