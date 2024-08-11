@@ -136,7 +136,7 @@ pub enum ParseError {
     #[error("Invalid data format")]
     InvalidDataFormat,
     #[error("Error decoding {0}: {1}")]
-    DataDecodeError(String, #[source] base64::DecodeError),
+    DataDecodeError(&'static str, #[source] base64::DecodeError),
 }
 
 impl TryFrom<String> for Aes256GcmData {
@@ -152,13 +152,13 @@ impl TryFrom<String> for Aes256GcmData {
 
         let data = general_purpose::STANDARD
             .decode(data)
-            .map_err(|e| ParseError::DataDecodeError("data".to_string(), e))?;
+            .map_err(|e| ParseError::DataDecodeError("data", e))?;
         let iv = general_purpose::STANDARD
             .decode(iv)
-            .map_err(|e| ParseError::DataDecodeError("iv".to_string(), e))?;
+            .map_err(|e| ParseError::DataDecodeError("iv", e))?;
         let tag = general_purpose::STANDARD
             .decode(tag)
-            .map_err(|e| ParseError::DataDecodeError("tag".to_string(), e))?;
+            .map_err(|e| ParseError::DataDecodeError("tag", e))?;
 
         let data_type = match data_type {
             "str" => Aes256GcmType::String,
