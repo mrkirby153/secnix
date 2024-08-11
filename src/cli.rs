@@ -108,7 +108,7 @@ pub fn install(args: Cli) -> Result<()> {
     let keyfile = keyfile.to_str();
 
     if let Some(keyfile) = keyfile {
-        activate_new_generation(directory, manifest.secrets, &keyfile)?;
+        activate_new_generation(directory, manifest.secrets, keyfile)?;
     } else {
         return Err(anyhow!("Failed to convert keyfile path to string"));
     }
@@ -121,7 +121,7 @@ pub fn install(args: Cli) -> Result<()> {
 fn load_manifest(path: &str) -> Result<SecnixManifest> {
     let manifest = shellexpand::tilde(path);
     let path = Path::new(manifest.as_ref());
-    let manifest = SecnixManifest::new(&path)?;
+    let manifest = SecnixManifest::new(path)?;
 
     if manifest.version > MAX_SUPPORTED_VERSION {
         Err(Error::UnsupportedVersion(manifest.version, MAX_SUPPORTED_VERSION).into())

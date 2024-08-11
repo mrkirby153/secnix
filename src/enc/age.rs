@@ -30,7 +30,7 @@ pub enum DecryptedValue {
     Float(f64),
     Bytes(Vec<u8>),
     Bool(bool),
-    Comment(String),
+    Comment(()),
 }
 
 pub fn decrypt_kek(kek: &str, keyfile: &str) -> Result<Vec<u8>> {
@@ -69,14 +69,14 @@ pub fn decrypt(data: String, key: &[u8; 32], path: Vec<String>) -> Result<Decryp
     let aad = aad.as_bytes();
     let payload = Payload {
         msg: &ciphertext_tag[..],
-        aad: &aad[..],
+        aad,
     };
 
     let nonce = Nonce::from_slice(&nonce[..]);
     let key = Key::<SopsGcm>::from_slice(&key[..]);
 
-    let cipher = SopsGcm::new(&key);
-    match cipher.decrypt(&nonce, payload) {
+    let cipher = SopsGcm::new(key);
+    match cipher.decrypt(nonce, payload) {
         Ok(raw_decrypted) => {
             let decrypted = String::from_utf8(raw_decrypted).map_err(|e| anyhow!(e))?;
 
@@ -86,7 +86,7 @@ pub fn decrypt(data: String, key: &[u8; 32], path: Vec<String>) -> Result<Decryp
                 Aes256GcmType::Float => Ok(DecryptedValue::Float(decrypted.parse()?)),
                 Aes256GcmType::Bytes => Ok(DecryptedValue::Bytes(decrypted.into_bytes())),
                 Aes256GcmType::Bool => Ok(DecryptedValue::Bool(decrypted.parse()?)),
-                Aes256GcmType::Comment => Ok(DecryptedValue::Comment(decrypted)),
+                Aes256GcmType::Comment => Ok(DecryptedValue::Comment(())),
                 Aes256GcmType::Unknown => Err(anyhow!("Unknown data type")),
             }
         }

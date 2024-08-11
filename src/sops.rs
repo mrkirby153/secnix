@@ -26,9 +26,9 @@ pub struct SopsData {
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("Could not parse file as JSON or YAML")]
-    ParseError,
+    Parse,
     #[error("Could not decrypt data: {0}")]
-    DecryptionError(#[from] DecryptionError),
+    Decrypt(#[from] DecryptionError),
     #[error("Missing data: {0}")]
     MissingData(String),
 }
@@ -38,7 +38,7 @@ pub enum DecryptionError {
     #[error("No recipients found")]
     NoRecipients,
     #[error("Error decrypting KEK: {0}")]
-    KekDecryptionError(#[from] anyhow::Error),
+    KekDecryption(#[from] anyhow::Error),
     #[error("No key found")]
     NoKey,
 }
@@ -73,10 +73,10 @@ impl SopsFile for YamlSopsFile {
                 if key.len() == 1 {
                     return Some(s);
                 }
-                return None;
+                None
             }
             Some(other) => other.get_nested(&key[1..]),
-            None => return None,
+            None => None,
         }
     }
 
@@ -95,7 +95,7 @@ pub fn load_sops_file(path: &str) -> Result<Box<dyn SopsFile>> {
         return Ok(Box::new(yaml));
     }
 
-    Err(anyhow!(Error::ParseError))
+    Err(anyhow!(Error::Parse))
 }
 
 fn decrypt(path: &[&str], data: &str, keyfile: &str, sops: &SopsData) -> Result<DecryptedValue> {
@@ -111,38 +111,22 @@ fn decrypt(path: &[&str], data: &str, keyfile: &str, sops: &SopsData) -> Result<
         .filter(|a| identities.contains(&a.recipient))
         .collect();
     debug!("Found {} candidates", candidiates.len());
-    if candidiates.len() == 0 {
+    if candidiates.is_empty() {
         return Err(anyhow!(DecryptionError::NoRecipients));
     }
 
     let candidate = candidiates[0];
     debug!("Candidate: {:?}", candidate);
 
-    let kek = enc::age::decrypt_kek(&candidate.enc, keyfile)
-        .map_err(|e| DecryptionError::KekDecryptionError(e))?;
+    let kek =
+        enc::age::decrypt_kek(&candidate.enc, keyfile).map_err(DecryptionError::KekDecryption)?;
     let kek: &[u8; 32] = kek[..].try_into()?;
 
     enc::age::decrypt(
         data.to_string(),
         kek,
-        path.into_iter().map(|f| f.to_string()).collect(),
+        path.iter().map(|f| f.to_string()).collect(),
     )
-}
-
-trait Leaf {
-    fn is_leaf(&self) -> bool;
-}
-
-impl Leaf for serde_yaml::Value {
-    fn is_leaf(&self) -> bool {
-        !matches!(self, serde_yaml::Value::Mapping(_))
-    }
-}
-
-impl Leaf for serde_json::Value {
-    fn is_leaf(&self) -> bool {
-        !matches!(self, serde_json::Value::Object(_))
-    }
 }
 
 trait Nested {
@@ -153,43 +137,16 @@ impl Nested for serde_yaml::Value {
     fn get_nested(&self, key: &[&str]) -> Option<&String> {
         match self {
             serde_yaml::Value::String(s) => {
-                if key.len() == 0 {
+                if key.is_empty() {
                     Some(s)
                 } else {
                     None
                 }
             }
             serde_yaml::Value::Mapping(m) => {
-                let current_key = key.get(0);
+                let current_key = key.first();
                 let current = match current_key {
                     Some(k) => m.get(k),
-                    None => None,
-                };
-                if let Some(value) = current {
-                    value.get_nested(&key[1..])
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-}
-
-impl Nested for serde_json::Value {
-    fn get_nested(&self, key: &[&str]) -> Option<&String> {
-        match self {
-            serde_json::Value::String(s) => {
-                if key.len() == 0 {
-                    Some(s)
-                } else {
-                    None
-                }
-            }
-            serde_json::Value::Object(m) => {
-                let current_key = key.get(0);
-                let current = match current_key {
-                    Some(k) => m.get(k.to_owned()),
                     None => None,
                 };
                 if let Some(value) = current {

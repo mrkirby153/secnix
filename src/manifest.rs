@@ -46,9 +46,9 @@ pub struct SecretFile {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
 pub enum FileType {
     #[serde(rename = "json")]
-    JSON,
+    Json,
     #[serde(rename = "yaml", alias = "yml")]
-    YAML,
+    Yaml,
     #[serde(rename = "binary")]
     Binary,
 }
@@ -61,7 +61,7 @@ enum Error {
     InvalidManifest(serde_json::Error),
 
     #[error("Unknown error: {0}")]
-    UnknownError(#[from] anyhow::Error),
+    Unknown(#[from] anyhow::Error),
 }
 
 impl SecnixManifest {
@@ -70,10 +70,9 @@ impl SecnixManifest {
         if !path.exists() {
             return Err(Error::PathDoesNotExist.into());
         }
-        let manifest =
-            std::fs::read_to_string(path).map_err(|e| Error::UnknownError(anyhow!(e)))?;
+        let manifest = std::fs::read_to_string(path).map_err(|e| Error::Unknown(anyhow!(e)))?;
         let manifest: SecnixManifest =
-            serde_json::from_str(&manifest).map_err(|e| Error::InvalidManifest(e))?;
+            serde_json::from_str(&manifest).map_err(Error::InvalidManifest)?;
 
         Ok(manifest)
     }
@@ -83,12 +82,10 @@ impl SecretFile {
     pub fn get_key(&self) -> Option<String> {
         if let Some(key) = &self.key {
             Some(key.clone())
+        } else if self.file_type == FileType::Binary {
+            Some("data".to_string())
         } else {
-            if self.file_type == FileType::Binary {
-                Some("data".to_string())
-            } else {
-                None
-            }
+            None
         }
     }
 }

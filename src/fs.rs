@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     fs::rename,
     io::Write,
     os::unix::fs::symlink,
@@ -51,11 +51,7 @@ pub fn activate_new_generation(
 
     let current_metadata = DeployedSecretsMetadata {
         generation: generation_id.clone(),
-        secret_files: files
-            .iter()
-            .filter(|f| f.link.is_some())
-            .map(|f| f.link.clone().unwrap())
-            .collect(),
+        secret_files: files.iter().filter_map(|f| f.link.clone()).collect(),
         secrets: files.clone(),
     };
 
@@ -72,7 +68,7 @@ pub fn activate_new_generation(
     // Write the files
     for secret_file in &files {
         let file_name = &secret_file.name;
-        let file_path = generation_directory.join(&file_name);
+        let file_path = generation_directory.join(file_name);
         debug!("Writing file: {}", file_path.display());
 
         let encrypted = load_sops_file(&secret_file.source)?;

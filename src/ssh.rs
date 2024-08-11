@@ -64,7 +64,7 @@ fn ssh_private_key_to_age(key: &[u8]) -> Result<String> {
 
 fn ed25519_private_key_to_curve25519(pk: &Ed25519SecretKey) -> Result<[u8; 32]> {
     let mut hasher = Sha512::new();
-    hasher.update(&pk);
+    hasher.update(pk);
     let out = hasher.finalize();
     let mut scalar = [0u8; 32];
     scalar.copy_from_slice(&out[..32]);
@@ -86,5 +86,5 @@ fn encode_public_key(pk: &CompressedEdwardsY) -> Result<String> {
     let mpk = ed25519_public_key_to_curve25519(pk)?;
 
     let hrp = Hrp::parse("age").map_err(|e| anyhow!(e))?;
-    Ok(encode::<Bech32>(hrp, &mpk).map_err(|e| anyhow!(e))?)
+    encode::<Bech32>(hrp, &mpk).map_err(|e| anyhow!(e))
 }
