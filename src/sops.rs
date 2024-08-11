@@ -64,13 +64,6 @@ pub struct YamlSopsFile {
     other: HashMap<String, serde_yaml::Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JsonSopsFile {
-    pub sops: SopsData,
-    #[serde(flatten)]
-    other: HashMap<String, serde_json::Value>,
-}
-
 impl SopsFile for YamlSopsFile {
     fn get_key<'a>(&'a self, key: &[&'a str]) -> Option<&String> {
         let first = self.other.get(key[0]);
@@ -92,41 +85,13 @@ impl SopsFile for YamlSopsFile {
     }
 }
 
-impl SopsFile for JsonSopsFile {
-    fn get_key<'a>(&'a self, key: &[&'a str]) -> Option<&String> {
-        let first = self.other.get(key[0]);
-        match first {
-            Some(serde_json::Value::String(s)) => {
-                debug!("Found string: {:?}", s);
-                if key.len() == 1 {
-                    return Some(s);
-                }
-                return None;
-            }
-            Some(other) => other.get_nested(&key[1..]),
-            None => return None,
-        }
-    }
-
-    fn sops_metadata(&self) -> &SopsData {
-        &self.sops
-    }
-}
-
 pub fn load_sops_file(path: &str) -> Result<Box<dyn SopsFile>> {
     debug!("Loading file from path: {}", path);
     let data = std::fs::read_to_string(path)?;
 
-    let try_json: Result<JsonSopsFile, serde_json::Error> = serde_json::from_str(&data);
-
-    if let Ok(json) = try_json {
-        debug!("Loaded as JSON");
-        return Ok(Box::new(json));
-    }
-
     let try_yaml: Result<YamlSopsFile, serde_yaml::Error> = serde_yaml::from_str(&data);
     if let Ok(yaml) = try_yaml {
-        debug!("Loaded as YAML");
+        debug!("Loaded");
         return Ok(Box::new(yaml));
     }
 
