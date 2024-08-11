@@ -10,7 +10,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use anyhow::Result;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use ulid::Ulid;
 
 use crate::{enc::age::DecryptedValue, manifest::SecretFile, sops::load_sops_file};
@@ -70,7 +70,7 @@ pub fn activate_new_generation(
     serde_json::to_writer(metadata_file, &current_metadata)?;
 
     // Write the files
-    for secret_file in files {
+    for secret_file in &files {
         let file_name = &secret_file.name;
         let file = generation_directory.join(&file_name);
         debug!("Writing file: {}", file.display());
@@ -80,6 +80,7 @@ pub fn activate_new_generation(
             let path = key.split('.').collect::<Vec<_>>();
             let decrypted = encrypted.decrypt(&path, identity_file)?;
 
+            // TODO: Support file permissions
             let mut file = OpenOptions::new()
                 .write(true)
                 .create(true)
@@ -132,6 +133,24 @@ pub fn activate_new_generation(
     symlink(get_generation_path(basedir, &generation_id), &temp_file)?;
     rename(temp_file, basedir.join("secrets"))?;
 
+    // Symlink all the files
+    for secret_file in &files {
+        if let Some(link) = &secret_file.link {
+            let link = Path::new(&link);
+            // Create parent directories
+            if let Some(parent) = link.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let target = basedir.join("secrets").join(&secret_file.name);
+            debug!("Symlinking {} -> {}", link.display(), target.display());
+
+            // Create a temporary file and atomically move it to the target. The temp file is adjacent to the target
+            let temp_file = link.with_extension("tmp");
+            symlink(target, &temp_file)?;
+            rename(temp_file, link)?;
+        }
+    }
+
     // Remove previous generation files
     if let Some(previous_generation) = previous_generation {
         debug!("Removing stale symlinks from previous generation");
@@ -146,8 +165,8 @@ pub fn activate_new_generation(
 
         let to_remove = previous_files.difference(&current_files);
         for file in to_remove {
-            let file = basedir.join(file);
-            debug!("Removing stale symlink: {}", file.display());
+            let file = Path::new(file);
+            info!("Removing stale symlink: {}", file.display());
             std::fs::remove_file(&file)?;
         }
     }
