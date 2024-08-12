@@ -121,7 +121,7 @@ pub fn install(args: Cli) -> Result<()> {
     let keyfile = keyfile.to_str();
 
     if let Some(keyfile) = keyfile {
-        activate_new_generation(directory, manifest.secrets, keyfile)?;
+        activate_new_generation(directory, manifest.secrets, manifest.templates, keyfile)?;
     } else {
         return Err(anyhow!("Failed to convert keyfile path to string"));
     }

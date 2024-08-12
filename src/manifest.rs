@@ -14,6 +14,9 @@ pub struct SecnixManifest {
     pub ssh_keys: Vec<String>,
     /// The directory where the secrets will be installed
     pub secret_directory: String,
+
+    /// A list of templates that should be rendered
+    pub templates: Vec<Template>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -39,8 +42,6 @@ pub struct SecretFile {
     pub owner: Option<String>,
     /// The group of the file
     pub group: Option<String>,
-    /// Whether or not to copy the file instead of symlinking it
-    pub copy: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
@@ -51,6 +52,19 @@ pub enum FileType {
     Yaml,
     #[serde(rename = "binary")]
     Binary,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Template {
+    /// The source of the template
+    pub source: String,
+    /// The destination of the template
+    pub destination: String,
+    /// If the template should be symlinked or copied
+    pub copy: Option<bool>,
+    pub mode: Option<u32>,
+    pub owner: Option<String>,
+    pub group: Option<String>,
 }
 
 #[derive(Error, Debug)]

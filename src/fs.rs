@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs::rename,
     io::Write,
     os::unix::fs::symlink,
@@ -14,7 +14,11 @@ use tracing::{debug, info, warn};
 use ulid::Ulid;
 use users::{get_group_by_name, get_user_by_name};
 
-use crate::{enc::age::DecryptedValue, manifest::SecretFile, sops::load_sops_file};
+use crate::{
+    enc::age::DecryptedValue,
+    manifest::{SecretFile, Template},
+    sops::load_sops_file,
+};
 
 use std::fs::OpenOptions;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -41,6 +45,7 @@ struct DeployedSecretsMetadata {
 pub fn activate_new_generation(
     basedir: &Path,
     files: Vec<SecretFile>,
+    templates: Vec<Template>,
     identity_file: &str,
 ) -> Result<String> {
     let generation_id = Ulid::new().to_string();
@@ -49,9 +54,12 @@ pub fn activate_new_generation(
         generation_id, identity_file
     );
 
+    let template_links: Vec<String> = templates.iter().map(|t| t.destination.clone()).collect();
+    let file_links: Vec<String> = files.iter().filter_map(|f| f.link.clone()).collect();
+
     let current_metadata = DeployedSecretsMetadata {
         generation: generation_id.clone(),
-        secret_files: files.iter().filter_map(|f| f.link.clone()).collect(),
+        secret_files: [template_links, file_links].concat(),
     };
 
     let generation_directory = get_generation_path(basedir, &generation_id);
@@ -64,6 +72,7 @@ pub fn activate_new_generation(
     let metadata_file = std::fs::File::create(&metadata_file)?;
     serde_json::to_writer(metadata_file, &current_metadata)?;
 
+    let mut secrets: HashMap<&str, String> = HashMap::new();
     // Write the files
     for secret_file in &files {
         let file_name = &secret_file.name;
@@ -85,18 +94,22 @@ pub fn activate_new_generation(
             match decrypted {
                 DecryptedValue::String(str) => {
                     file.write_all(str.as_bytes())?;
+                    secrets.insert(file_name, str.clone());
                 }
                 DecryptedValue::Int(int) => {
                     file.write_all(int.to_string().as_bytes())?;
+                    secrets.insert(file_name, int.to_string());
                 }
                 DecryptedValue::Float(float) => {
                     file.write_all(float.to_string().as_bytes())?;
+                    secrets.insert(file_name, float.to_string());
                 }
                 DecryptedValue::Bytes(bytes) => {
                     file.write_all(&bytes)?;
                 }
                 DecryptedValue::Bool(bool) => {
                     file.write_all(bool.to_string().as_bytes())?;
+                    secrets.insert(file_name, bool.to_string());
                 }
                 _ => {
                     warn!("Unsupported data type for file: {}", file_name);
@@ -153,6 +166,36 @@ pub fn activate_new_generation(
         }
     }
 
+    // Render the templates
+    debug!("Rendering templates");
+    let rendered_template_dir = generation_directory.join("rendered");
+    std::fs::create_dir_all(&rendered_template_dir)?;
+    for template in &templates {
+        debug!("Rendering template: {}", template.source);
+        let mut text = std::fs::read_to_string(&template.source)?;
+        for (key, value) in &secrets {
+            let target_key = format!("$$SECNIX::{}::SECNIX$$", key);
+            debug!("Looking for key: {}", target_key);
+            text = text.replace(&target_key, value);
+        }
+        let file_name = {
+            if let Some(path) = Path::new(&template.source).file_name() {
+                path.to_string_lossy().to_string()
+            } else {
+                Ulid::new().to_string()
+            }
+        };
+        let target = rendered_template_dir.join(&file_name);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&target)?;
+        file.write_all(text.as_bytes())?;
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o400))?;
+    }
+
     // Add the generation to the manifest
     debug!("Recording generation in manifest");
     let mut metadata = get_metadata(basedir)?;
@@ -189,6 +232,33 @@ pub fn activate_new_generation(
         }
     }
 
+    // Symlink the rendered templates
+    for template in &templates {
+        debug!("Symlinking template: {}", template.destination);
+        let link = Path::new(&template.destination);
+        // Create parent directories
+        if let Some(parent) = link.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        if template.copy.unwrap_or(false) {
+            let source =
+                rendered_template_dir.join(Path::new(&template.source).file_name().unwrap());
+            debug!("Copying {} -> {}", source.display(), link.display());
+            let temp = link.with_extension("tmp");
+            std::fs::copy(source, &temp)?;
+            rename(temp, link)?;
+        } else {
+            let source_file = Path::new(&template.source).file_name().unwrap();
+            let target = basedir.join("secrets").join("rendered").join(source_file);
+            debug!("Symlinking {} -> {}", link.display(), target.display());
+
+            let temp = link.with_extension("tmp");
+            symlink(target, &temp)?;
+            rename(temp, link)?;
+        }
+    }
+
     // Remove previous generation files
     if let Some(previous_generation) = previous_generation {
         debug!("Removing stale symlinks from previous generation");
@@ -205,6 +275,9 @@ pub fn activate_new_generation(
         for file in to_remove {
             let file = Path::new(file);
             info!("Removing stale symlink: {}", file.display());
+            if let Err(e) = std::fs::remove_file(file) {
+                warn!("Failed to remove file: {}", e);
+            }
         }
     }
 
