@@ -6,18 +6,20 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system: 
-    let
-      pkgs = import nixpkgs { inherit system; };
-    in
-    rec {
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+  }:
+    flake-utils.lib.eachDefaultSystem (system: let
+      pkgs = import nixpkgs {inherit system;};
+    in rec {
       packages = {
         default = pkgs.rustPlatform.buildRustPackage {
           pname = "secnix";
           version = "0.1.0";
           src = ./.;
-          cargoHash = "sha256-3QIFjxAAPosrov7DWZ8mqn+Q0pHJ5noBV+jHUjouOvA=";
+          cargoHash = "sha256-bm6/IF8nL4C3oQT6pV3zLZWnEBr7wAaRQJYodneL3fM=";
           meta = {
             description = "A sops secret manager for nix";
             license = pkgs.lib.licenses.mit;
@@ -26,7 +28,7 @@
         };
       };
       devShell = pkgs.mkShell {
-        buildInputs = with pkgs; [ packages.default sops];
+        buildInputs = with pkgs; [packages.default sops];
         shellHook = ''
           export RUST_LOG=debug
           # export RUST_BACKTRACE=1

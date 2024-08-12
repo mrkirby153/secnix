@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use tracing::{debug, info, warn};
 use ulid::Ulid;
+use users::{get_group_by_name, get_user_by_name};
 
 use crate::{enc::age::DecryptedValue, manifest::SecretFile, sops::load_sops_file};
 
@@ -74,7 +75,6 @@ pub fn activate_new_generation(
             let path = key.split('.').collect::<Vec<_>>();
             let decrypted = encrypted.decrypt(&path, identity_file)?;
 
-            // TODO: Support file permissions
             let mut file = OpenOptions::new()
                 .write(true)
                 .create(true)
@@ -103,8 +103,50 @@ pub fn activate_new_generation(
                 }
             }
             file.flush()?;
-            // Make the fole read-only
-            std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o400))?;
+            // Make the file read-only
+
+            let mode = secret_file.mode.unwrap_or(400).to_string();
+            debug!("Setting file permissions to: {}", mode);
+            let as_octal = u32::from_str_radix(&mode, 8)?;
+
+            std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(as_octal))?;
+            // Set the owner and group of the file
+            let owner = secret_file.owner.as_ref();
+            let group = secret_file.group.as_ref();
+
+            if let Some(owner_name) = owner {
+                let owner = get_user_by_name(owner_name);
+                if let Some(owner) = owner {
+                    let uid = owner.uid();
+                    debug!("Setting owner to: {}", owner.name().to_string_lossy());
+                    if let Err(e) = std::os::unix::fs::chown(&file_path, Some(uid), None) {
+                        warn!("Failed to set owner: {}", e);
+                    }
+                } else {
+                    warn!(
+                        "Owner {} not found. Not setting owner for {}",
+                        owner_name,
+                        file_path.display()
+                    )
+                }
+            }
+            if let Some(group_name) = group {
+                let group = get_group_by_name(group_name);
+                if let Some(group) = group {
+                    let gid = group.gid();
+                    debug!("Setting group to: {}", group.name().to_string_lossy());
+                    if let Err(e) = std::os::unix::fs::chown(&file_path, None, Some(gid)) {
+                        warn!("Failed to set group: {}", e);
+                    }
+                } else {
+                    warn!(
+                        "Group {} not found. Not setting group for {}",
+                        group_name,
+                        file_path.display()
+                    )
+                }
+            }
+
             debug!("File written successfully");
         } else {
             warn!("No key provided for file: {}", file_name);
