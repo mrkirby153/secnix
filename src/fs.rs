@@ -171,21 +171,18 @@ pub fn activate_new_generation(
     let rendered_template_dir = generation_directory.join("rendered");
     std::fs::create_dir_all(&rendered_template_dir)?;
     for template in &templates {
-        debug!("Rendering template: {}", template.source);
+        debug!(
+            "Rendering template {} to {}",
+            template.source, template.name
+        );
         let mut text = std::fs::read_to_string(&template.source)?;
         for (key, value) in &secrets {
             let target_key = format!("$$SECNIX::{}::SECNIX$$", key);
             debug!("Looking for key: {}", target_key);
             text = text.replace(&target_key, value);
         }
-        let file_name = {
-            if let Some(path) = Path::new(&template.source).file_name() {
-                path.to_string_lossy().to_string()
-            } else {
-                Ulid::new().to_string()
-            }
-        };
-        let target = rendered_template_dir.join(&file_name);
+        let file_name = &template.name;
+        let target = rendered_template_dir.join(file_name);
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -249,8 +246,10 @@ pub fn activate_new_generation(
             std::fs::copy(source, &temp)?;
             rename(temp, link)?;
         } else {
-            let source_file = Path::new(&template.source).file_name().unwrap();
-            let target = basedir.join("secrets").join("rendered").join(source_file);
+            let target = basedir
+                .join("secrets")
+                .join("rendered")
+                .join(&template.name);
             debug!("Symlinking {} -> {}", link.display(), target.display());
 
             let temp = link.with_extension("tmp");

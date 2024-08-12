@@ -56,6 +56,8 @@ pub enum FileType {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Template {
+    /// The name of the template file
+    pub name: String,
     /// The source of the template
     pub source: String,
     /// The destination of the template
