@@ -131,6 +131,12 @@ fn load_manifest(path: &str) -> Result<SecnixManifest> {
 }
 
 fn write_ssh_keys(directory: &Path, keys: &[String]) -> Result<PathBuf> {
+    // Ensure the directory exists
+    if !directory.exists() {
+        debug!("Creating directory {}", directory.display());
+        std::fs::create_dir_all(directory)?;
+    }
+
     let path = directory.join("keys.txt");
     debug!("Writing ssh keys to {}", path.display());
 
