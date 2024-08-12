@@ -51,6 +51,19 @@ pub fn check(args: Cli) -> Result<()> {
 
     debug!("Read manifest: {:?}", manifest);
 
+    debug!("Checking for duplicate names");
+    let mut seen = std::collections::HashSet::new();
+    let secrets = &manifest.secrets;
+    for name in secrets.iter().map(|s| &s.name) {
+        if !seen.insert(name) {
+            return Err(Error::CheckFailed(
+                args.manifest.clone(),
+                format!("Duplicate name: {}", name).to_string(),
+            )
+            .into());
+        }
+    }
+
     for file in &manifest.secrets {
         debug!("Checking file: {:?}", file);
 
