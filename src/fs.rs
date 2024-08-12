@@ -33,7 +33,6 @@ struct DeployedSecretsMetadata {
     generation: String,
     /// The paths to the secret files that were symlinked
     secret_files: Vec<String>,
-    secrets: Vec<SecretFile>,
 }
 
 /// Create a new generation of secrets, returning the generation id.
@@ -52,7 +51,6 @@ pub fn activate_new_generation(
     let current_metadata = DeployedSecretsMetadata {
         generation: generation_id.clone(),
         secret_files: files.iter().filter_map(|f| f.link.clone()).collect(),
-        secrets: files.clone(),
     };
 
     let generation_directory = get_generation_path(basedir, &generation_id);
