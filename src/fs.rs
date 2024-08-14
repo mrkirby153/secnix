@@ -1,8 +1,8 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    fs::rename,
+    fs::{rename, set_permissions, Permissions},
     io::Write,
-    os::unix::fs::symlink,
+    os::unix::fs::{chown, symlink},
     path::Path,
     time::SystemTime,
 };
@@ -118,46 +118,15 @@ pub fn activate_new_generation(
             file.flush()?;
             // Make the file read-only
 
-            let mode = secret_file.mode.unwrap_or(400).to_string();
-            debug!("Setting file permissions to: {}", mode);
-            let as_octal = u32::from_str_radix(&mode, 8)?;
-
-            std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(as_octal))?;
-            // Set the owner and group of the file
-            let owner = secret_file.owner.as_ref();
-            let group = secret_file.group.as_ref();
-
-            if let Some(owner_name) = owner {
-                let owner = get_user_by_name(owner_name);
-                if let Some(owner) = owner {
-                    let uid = owner.uid();
-                    debug!("Setting owner to: {}", owner.name().to_string_lossy());
-                    if let Err(e) = std::os::unix::fs::chown(&file_path, Some(uid), None) {
-                        warn!("Failed to set owner: {}", e);
-                    }
-                } else {
-                    warn!(
-                        "Owner {} not found. Not setting owner for {}",
-                        owner_name,
-                        file_path.display()
-                    )
-                }
-            }
-            if let Some(group_name) = group {
-                let group = get_group_by_name(group_name);
-                if let Some(group) = group {
-                    let gid = group.gid();
-                    debug!("Setting group to: {}", group.name().to_string_lossy());
-                    if let Err(e) = std::os::unix::fs::chown(&file_path, None, Some(gid)) {
-                        warn!("Failed to set group: {}", e);
-                    }
-                } else {
-                    warn!(
-                        "Group {} not found. Not setting group for {}",
-                        group_name,
-                        file_path.display()
-                    )
-                }
+            let mode = secret_file.mode.map(FilePermission::Decimal);
+            let group = secret_file.group.as_deref();
+            let user = secret_file.owner.as_deref();
+            if let Err(e) = set_file_permissions(&file_path, mode, group, user) {
+                warn!(
+                    "Failed to set file permissions for {}: {}",
+                    file_path.display(),
+                    e
+                );
             }
 
             debug!("File written successfully");
@@ -190,6 +159,18 @@ pub fn activate_new_generation(
             .mode(0o600)
             .open(&target)?;
         file.write_all(text.as_bytes())?;
+
+        let mode = template.mode.map(FilePermission::Decimal);
+        let group = template.group.as_deref();
+        let user = template.owner.as_deref();
+        if let Err(e) = set_file_permissions(&target, mode, group, user) {
+            warn!(
+                "Failed to set file permissions for {}: {}",
+                target.display(),
+                e
+            );
+        }
+
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o400))?;
     }
 
@@ -350,4 +331,43 @@ fn get_metadata(basedir: &Path) -> Result<FileSystemMetadata> {
         let metadata_file = std::fs::File::open(&metadata_file)?;
         Ok(serde_json::from_reader(metadata_file)?)
     }
+}
+
+#[derive(Debug)]
+enum FilePermission {
+    Decimal(u32),
+}
+
+fn set_file_permissions(
+    path: &Path,
+    permissions: Option<FilePermission>,
+    group: Option<&str>,
+    user: Option<&str>,
+) -> Result<()> {
+    debug!(
+        "Setting permissions for file: {} to {:?} {:?} {:?}",
+        path.display(),
+        permissions,
+        group,
+        user
+    );
+
+    let file_permissions = match permissions {
+        Some(FilePermission::Decimal(perm)) => u32::from_str_radix(&perm.to_string(), 8)?,
+        None => 0o400,
+    };
+
+    let user = user.and_then(get_user_by_name);
+    let group = group.and_then(get_group_by_name);
+
+    set_permissions(path, Permissions::from_mode(file_permissions))?;
+
+    if let Some(user) = user {
+        chown(path, Some(user.uid()), None)?;
+    }
+    if let Some(group) = group {
+        chown(path, None, Some(group.gid()))?;
+    };
+
+    Ok(())
 }
