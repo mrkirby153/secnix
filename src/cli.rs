@@ -1,4 +1,5 @@
 use std::{
+    env::consts::OS,
     fs::OpenOptions,
     path::{Path, PathBuf},
 };
@@ -115,7 +116,8 @@ pub fn install(args: Cli) -> Result<()> {
 
     let manifest = load_manifest(&args.manifest)?;
 
-    let directory = Path::new(&manifest.secret_directory);
+    let directory = get_secret_directory(&manifest)?;
+    let directory = Path::new(&directory);
 
     let keyfile = write_ssh_keys(directory, &manifest.ssh_keys[..])?;
     let keyfile = keyfile.to_str();
@@ -179,4 +181,27 @@ fn write_ssh_keys(directory: &Path, keys: &[String]) -> Result<PathBuf> {
     buffer.flush()?;
 
     Ok(path)
+}
+
+fn get_secret_directory(manifest: &SecnixManifest) -> Result<String> {
+    let basedir = manifest.secret_directory.as_str();
+    if basedir.contains("%r") {
+        debug!("Replacing %r with runtime directory");
+        let runtime_direcotry = if cfg!(target_os = "linux") {
+            std::env::var("XDG_RUNTIME_DIR")?
+        } else if cfg!(target_os = "macos") {
+            let output = std::process::Command::new("getconf")
+                .args(["DARWIN_USER_TEMP_DIR"])
+                .output()?;
+            let output = String::from_utf8(output.stdout)?;
+            output.trim().to_string()
+        } else {
+            return Err(anyhow!("Unsupported OS"));
+        };
+        let final_string = basedir.replace("%r", &runtime_direcotry);
+        debug!("Runtime directory: {}", final_string);
+        Ok(final_string)
+    } else {
+        Ok(manifest.secret_directory.clone())
+    }
 }
