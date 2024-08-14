@@ -14,18 +14,9 @@
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {inherit system;};
     in rec {
-      packages = {
-        default = pkgs.rustPlatform.buildRustPackage {
-          pname = "secnix";
-          version = "0.1.0";
-          src = ./.;
-          cargoHash = "sha256-bm6/IF8nL4C3oQT6pV3zLZWnEBr7wAaRQJYodneL3fM=";
-          meta = {
-            description = "A sops secret manager for nix";
-            license = pkgs.lib.licenses.mit;
-            maintainers = [];
-          };
-        };
+      packages = rec {
+        secnix = pkgs.callPackage ./secnix.nix {};
+        default = secnix;
       };
       devShell = pkgs.mkShell {
         buildInputs = with pkgs; [packages.default sops];
@@ -34,5 +25,9 @@
           # export RUST_BACKTRACE=1
         '';
       };
-    });
+      formatter = pkgs.alejandra;
+    })
+    // {
+      homeManagerModule = import ./modules/home.nix;
+    };
 }
