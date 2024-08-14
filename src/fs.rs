@@ -118,7 +118,7 @@ pub fn activate_new_generation(
             file.flush()?;
             // Make the file read-only
 
-            let mode = secret_file.mode.map(FilePermission::Decimal);
+            let mode = secret_file.mode.as_deref();
             let group = secret_file.group.as_deref();
             let user = secret_file.owner.as_deref();
             if let Err(e) = set_file_permissions(&file_path, mode, group, user) {
@@ -160,7 +160,7 @@ pub fn activate_new_generation(
             .open(&target)?;
         file.write_all(text.as_bytes())?;
 
-        let mode = template.mode.map(FilePermission::Decimal);
+        let mode = template.mode.as_deref();
         let group = template.group.as_deref();
         let user = template.owner.as_deref();
         if let Err(e) = set_file_permissions(&target, mode, group, user) {
@@ -340,7 +340,7 @@ enum FilePermission {
 
 fn set_file_permissions(
     path: &Path,
-    permissions: Option<FilePermission>,
+    permissions: Option<&str>,
     group: Option<&str>,
     user: Option<&str>,
 ) -> Result<()> {
@@ -352,10 +352,10 @@ fn set_file_permissions(
         user
     );
 
-    let file_permissions = match permissions {
-        Some(FilePermission::Decimal(perm)) => u32::from_str_radix(&perm.to_string(), 8)?,
-        None => 0o400,
-    };
+    let file_permissions = permissions
+        .map(|p| u32::from_str_radix(p, 8))
+        .transpose()?
+        .unwrap_or(0o600);
 
     let user = user.and_then(get_user_by_name);
     let group = group.and_then(get_group_by_name);

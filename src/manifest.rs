@@ -37,7 +37,7 @@ pub struct SecretFile {
     pub link: Option<String>,
 
     /// The mode of the file
-    pub mode: Option<u32>,
+    pub mode: Option<String>,
     /// The owner of the file
     pub owner: Option<String>,
     /// The group of the file
@@ -64,7 +64,7 @@ pub struct Template {
     pub destination: String,
     /// If the template should be symlinked or copied
     pub copy: Option<bool>,
-    pub mode: Option<u32>,
+    pub mode: Option<String>,
     pub owner: Option<String>,
     pub group: Option<String>,
 }
